@@ -1,6 +1,8 @@
 import cv2
 import sys
 import os
+from multiprocessing import cpu_count
+from multiprocessing.pool import ThreadPool
 
 # opt arg
 
@@ -86,23 +88,55 @@ for short_opt, short_arg in opt_short.items():
     else:
         print("short argument {} not found".format(short_opt))
 
-def capture(filename, home_directory, capture_rate):
-    vidcap = cv2.VideoCapture(filename)
-    success, image = vidcap.read()
-    frame_count = 1
-    image_count = 1
-    while success:
-        if frame_count % int(60/capture_rate) == 0:
-            cv2.imwrite("{}/frame{}.jpg".format(home_directory, image_count), image)  # save frame as JPEG file
-            print("wrote {}/frame{}.jpg".format(home_directory, image_count))
-            image_count += 1
-        success, image = vidcap.read()
-        frame_count += 1
+def capture_wrapper(args):
+    capture(*args)        
 
+def capture(file_name, home_directory, capture_rate, starting_frame, num_frames):
+    vidcap = cv2.VideoCapture(file_name)
+    vidcap.set(cv2.CAP_PROP_POS_FRAMES, starting_frame-1)
+    success, image = vidcap.read()
+    curr_frame = starting_frame
+    end_frame = starting_frame + num_frames - 1
+
+    while curr_frame <= end_frame:
+        if curr_frame % int(60/capture_rate) == 0:
+            cv2.imwrite("{}/frame{}.jpg".format(home_directory, curr_frame), image)  # save frame as JPEG file
+            print("wrote {}/frame{}.jpg".format(home_directory, curr_frame))
+        success, image = vidcap.read()
+        curr_frame += 1
+    return 10
+
+def test(x):
+    print(x**2)
+
+def capture_parallelize(file_name, home_dir, rate):
+    print("STUPID")
+    cpus = cpu_count()
+    vidcap = cv2.VideoCapture(file_name)
+    num_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
+    num_processes = cpus - 1
+
+    frames_per_process = int(num_frames/num_processes)
+    starting_frames = [i * frames_per_process for i in range(num_processes)]
+
+    # Number of times to caputre frames, includes starting frame
+    frame_counts = [frames_per_process] * (num_processes-1) + [(num_frames - frames_per_process * num_processes) + frames_per_process]
+    
+    # args
+    #[(file_name, home_directory, capture_rate, starting_frame, num_frames)]
+    args = [(file_name, home_dir, rate, starting_frames[i], frame_counts[i]) for i in range(num_processes)]
+
+    pool = ThreadPool(num_processes)
+
+    with pool as p:
+        result = p.map(capture_wrapper, args)
+    
+    
 
 if(__name__ == "__main__"):
     if file_name and home_dir:
-        capture(file_name, home_dir, rate)
+        capture_parallelize(file_name, home_dir, rate)
+    
     else:
         print("Missing file name and output directory")
 
